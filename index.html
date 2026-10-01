@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Study Planner Personal — Cloud</title>
+<style>
+body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#eef5fc 0%,#fff 100%);margin:0;padding:30px 15px;color:#333;display:flex;flex-direction:column;align-items:center}
+h2{color:#0f4c81;margin-bottom:5px;letter-spacing:1px}.subtitle{color:#666;font-size:14px;margin-bottom:22px;text-align:center}
+.setup{background:#fff;padding:15px 18px;border-radius:15px;box-shadow:0 4px 15px rgba(0,0,0,.05);width:100%;max-width:900px;box-sizing:border-box;margin-bottom:15px}
+.setup summary{cursor:pointer;font-weight:700;color:#0f4c81}.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.setup input{padding:10px;border:1px solid #ddd;border-radius:8px;width:100%;box-sizing:border-box}.setup button{padding:10px 14px;border:0;border-radius:8px;background:#0f4c81;color:#fff;font-weight:700;cursor:pointer}
+.cloud-status{font-size:12px;margin-top:9px}.ok{color:#17823b}.err{color:#c53030}.muted{color:#718096}
+.input-container{background:white;padding:20px;border-radius:15px;box-shadow:0 4px 15px rgba(0,0,0,.05);width:100%;max-width:900px;margin-bottom:25px;box-sizing:border-box;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.input-container input,.input-container select,.input-container button{padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none}.input-container button{background:#0f4c81;color:#fff;font-weight:bold;border:none;cursor:pointer}.input-container button:hover{background:#1d6fa5}
+.table-responsive{width:100%;max-width:1150px;background:white;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,.08);overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;text-align:left;min-width:900px}th{background:#f7fafc;color:#4a5568;font-weight:600;padding:15px;border-bottom:2px solid #edf2f7;text-transform:uppercase;font-size:12px;letter-spacing:.5px}td{padding:15px;border-bottom:1px solid #edf2f7;vertical-align:middle}tr:hover{background:#f8fbfe}
+.badge-mapel{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;display:inline-block}.biology{background:#e6fffa;color:#234e52;border:1px solid #b2f5ea}.chemistry{background:#feebc8;color:#744210;border:1px solid #fbd38d}.physics{background:#fed7d7;color:#742a2a;border:1px solid #feb2b2}.space{background:#ebf8ff;color:#2b6cb0;border:1px solid #bee3f8}
+.priority-select,.status-select{padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid #cbd5e0;background:#fff;cursor:pointer}.btn-delete{background:none;border:none;color:#e53e3e;cursor:pointer;font-size:13px;font-weight:bold}.save-info{margin-top:12px;color:#718096;font-size:12px;text-align:center}
+@media(max-width:650px){.setup-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h2>📚 MY STUDY PLANNER 📚</h2>
+<div class="subtitle">Study Planner dr. M. Ikhtibarul Amri, S. Biomed</div>
+
+<details class="setup">
+<summary>☁️ Cloud Database Setup</summary>
+<div class="setup-grid">
+<input id="supabaseUrl" placeholder="Supabase Project URL">
+<input id="supabaseKey" placeholder="Supabase Publishable/Anon Key" type="password">
+</div>
+<div style="margin-top:10px"><button onclick="connectCloud()">Connect & Load Data</button></div>
+<div id="cloudStatus" class="cloud-status muted">Masukkan URL dan key Supabase kamu.</div>
+</details>
+
+<div class="input-container">
+<select id="inputMapel"><option value="biology">Biology</option><option value="chemistry">Chemistry</option><option value="physics">Physics</option><option value="space">Earth & Space</option></select>
+<input type="text" id="inputDeskripsi" placeholder="Deskripsi materi...">
+<select id="inputPrioritas"><option>Very High</option><option>High</option><option>Low</option><option>Very Low</option></select>
+<input type="date" id="inputTanggal"><input type="time" id="inputJam">
+<button onclick="tambahJadwal()">Tambah Rencana</button>
+</div>
+
+<div class="table-responsive">
+<table><thead><tr><th>Mapel</th><th>Deskripsi Materi</th><th>Prioritas</th><th>Tanggal Belajar</th><th>Jam Belajar</th><th>Sesi</th><th>Status Progress</th><th>Aksi</th></tr></thead>
+<tbody id="jadwalTabelBody"></tbody></table>
+</div>
+<div class="save-info">☁️ Data tersimpan di cloud setelah Supabase terhubung.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+let supabaseClient=null;
+const TABLE='study_plans';
+let jadwalData=[];
+
+document.getElementById('inputTanggal').valueAsDate=new Date();
+
+function status(msg,type='muted'){const e=document.getElementById('cloudStatus');e.textContent=msg;e.className='cloud-status '+type}
+
+function getSavedConfig(){
+  try{return JSON.parse(localStorage.getItem('studyPlannerCloudConfig')||'null')}catch{return null}
+}
+function saveConfig(url,key){localStorage.setItem('studyPlannerCloudConfig',JSON.stringify({url,key}))}
+
+async function connectCloud(){
+  const url=document.getElementById('supabaseUrl').value.trim();
+  const key=document.getElementById('supabaseKey').value.trim();
+  if(!url||!key){status('URL dan key belum lengkap.','err');return}
+  try{
+    supabaseClient=window.supabase.createClient(url,key);
+    saveConfig(url,key);
+    await loadData();
+  }catch(e){status('Gagal terhubung: '+e.message,'err')}
+}
+
+async function loadData(){
+  status('Mengambil history dari cloud...','muted');
+  const {data,error}=await supabaseClient.from(TABLE).select('*').order('tanggal',{ascending:true}).order('jam',{ascending:true});
+  if(error){status('Database error: '+error.message,'err');return}
+  jadwalData=data||[];
+  renderTabel();
+  status('☁️ Terhubung. History tersinkron dari cloud.','ok');
+}
+
+function hitungCountdown(targetDateStr){
+  if(!targetDateStr)return '-';
+  const target=new Date(targetDateStr),today=new Date();
+  target.setHours(0,0,0,0);today.setHours(0,0,0,0);
+  const n=Math.ceil((target-today)/(1000*60*60*24));
+  return n===0?'Hari Ini':n;
+}
+function esc(text){const d=document.createElement('div');d.textContent=text??'';return d.innerHTML}
+
+async function tambahJadwal(){
+  if(!supabaseClient){alert('Hubungkan database Supabase dulu di bagian Cloud Database Setup.');return}
+  const mapel=document.getElementById('inputMapel');
+  const deskripsi=document.getElementById('inputDeskripsi').value.trim();
+  if(!deskripsi){alert('Tolong isi deskripsi materinya terlebih dahulu ya!');return}
+  const row={
+    mapel_value:mapel.value,mapel_text:mapel.options[mapel.selectedIndex].text,
+    deskripsi,prioritas:document.getElementById('inputPrioritas').value,
+    tanggal:document.getElementById('inputTanggal').value,
+    jam:document.getElementById('inputJam').value||'--:--',
+    status:'in-progress'
+  };
+  const {data,error}=await supabaseClient.from(TABLE).insert(row).select().single();
+  if(error){alert('Gagal menyimpan: '+error.message);return}
+  jadwalData.push(data);document.getElementById('inputDeskripsi').value='';renderTabel();
+}
+function renderTabel(){
+  const tbody=document.getElementById('jadwalTabelBody');tbody.innerHTML='';
+  jadwalData.forEach(item=>{
+    const h=hitungCountdown(item.tanggal);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+    <td><span class="badge-mapel ${esc(item.mapel_value)}">${esc(item.mapel_text)}</span></td>
+    <td>${esc(item.deskripsi)}</td>
+    <td><select class="priority-select" onchange="ubahPrioritas('${item.id}',this.value)">
+      ${['Very High','High','Low','Very Low'].map(x=>`<option ${x===item.prioritas?'selected':''}>${x}</option>`).join('')}</select></td>
+    <td>${esc(item.tanggal||'')}</td><td>${esc(item.jam||'--:--')}</td>
+    <td style="font-weight:bold;color:${typeof h==='number'&&h<0?'#e53e3e':'#2b6cb0'}">${esc(String(h))}</td>
+    <td><select class="status-select" onchange="ubahStatus('${item.id}',this.value)">
+      <option value="in-progress" ${item.status==='in-progress'?'selected':''}>🛠️ In Progress</option>
+      <option value="completed" ${item.status==='completed'?'selected':''}>✅ Completed</option>
+      <option value="delayed" ${item.status==='delayed'?'selected':''}>▶️ Delayed</option>
+      <option value="cancelled" ${item.status==='cancelled'?'selected':''}>🚫 Cancelled</option>
+    </select></td>
+    <td><button class="btn-delete" onclick="hapusBaris('${item.id}')">Hapus</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+async function ubahStatus(id,value){
+  if(!supabaseClient)return;
+  const {error}=await supabaseClient.from(TABLE).update({status:value}).eq('id',id);
+  if(error){alert('Gagal mengubah status: '+error.message);return}
+  const x=jadwalData.find(r=>r.id===id);if(x)x.status=value;renderTabel();
+}
+async function ubahPrioritas(id,value){
+  if(!supabaseClient)return;
+  const {error}=await supabaseClient.from(TABLE).update({prioritas:value}).eq('id',id);
+  if(error){alert('Gagal mengubah prioritas: '+error.message);return}
+  const x=jadwalData.find(r=>r.id===id);if(x)x.prioritas=value;
+}
+async function hapusBaris(id){
+  const x=jadwalData.find(r=>r.id===id);if(!x)return;
+  if(!confirm(`Hapus rencana "${x.deskripsi}" dari cloud?`))return;
+  const {error}=await supabaseClient.from(TABLE).delete().eq('id',id);
+  if(error){alert('Gagal menghapus: '+error.message);return}
+  jadwalData=jadwalData.filter(r=>r.id!==id);renderTabel();
+}
+
+const cfg=getSavedConfig();
+if(cfg){document.getElementById('supabaseUrl').value=cfg.url;document.getElementById('supabaseKey').value=cfg.key}
+</script>
+</body>
+</html>
